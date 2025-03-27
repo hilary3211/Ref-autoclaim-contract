@@ -26,10 +26,6 @@ This is a NEAR Protocol smart contract that enables users stake, auto claim and 
 
 ## Contract ID
 ```
-auto-claim-main2.near
-```
-
-```
 [userid].auto-claim-main2.near
 ```
 
@@ -46,14 +42,7 @@ This contract is deployed into sub-accounts created by users. It enables users t
 
 
 
-### useraccs.rs
-This is the main contract that serves as the central hub for the platform. It is responsible for:
 
-- Tracking users: Maintains a record of all users and their activities on the platform.
-
-- Compounding rewards: Automatically compounds rewards earned by users.
-
-- Reinvesting rewards: Reinvests the claimed rewards into the appropriate pools or strategies.
 
 
 
