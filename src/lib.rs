@@ -37,6 +37,11 @@ impl fmt::Display for ContractError {
     }
 }
 
+/// A method to terminate contract execution by panicking with a human-readable error message.
+/// This function:
+/// - Takes no explicit parameters (uses self),
+/// - Converts the ContractError variant to a string using fmt::Display,
+/// - Panics with the resulting string, halting execution immediately.
 impl ContractError {
     fn panic(&self) -> ! {
         env::panic_str(&self.to_string())
@@ -76,6 +81,14 @@ pub struct ProxyContract {
 
 #[near]
 impl ProxyContract {
+    /// A method to initialize a new instance of the ProxyContract.
+    /// This function:
+    /// - Takes no parameters,
+    /// - Creates a new LazyOption to store the owner’s account ID,
+    /// - Panics if the contract is already initialized,
+    /// - Sets the caller (predecessor_account_id) as the owner,
+    /// - Initializes last_compound_call to 0,
+    /// - Returns a new ProxyContract instance with the initialized state.
     #[init]
     pub fn new() -> Self {
         let mut owner = LazyOption::new(StorageKey::Owner, None);
@@ -89,6 +102,13 @@ impl ProxyContract {
         }
     }
 
+    /// A method to verify that the caller is authorized to perform restricted actions.
+    /// This function:
+    /// - Takes no explicit parameters (uses self),
+    /// - Retrieves the caller’s account ID (predecessor_account_id),
+    /// - Compares it against the stored owner and the main account ID (MAIN_ID),
+    /// - Panics with an Unauthorized error if the caller is neither the owner nor the main account,
+    /// - Returns nothing if successful (implicitly allows execution to continue).
     fn assert_owner(&self) {
         let predecessor_id = env::predecessor_account_id();
         let stored_owner = self.owner.get().as_ref().expect("Contract not initialized");
@@ -105,10 +125,27 @@ impl ProxyContract {
         }
     }
 
+    /// A method to retrieve the account ID of the contract’s owner.
+    /// This function:
+    /// - Takes no parameters (uses self),
+    /// - Accesses the stored owner from LazyOption,
+    /// - Panics if the contract is not initialized,
+    /// - Returns a clone of the owner’s AccountId.
     pub fn get_owner(&self) -> AccountId {
         self.owner.get().as_ref().expect("Contract not initialized").clone()
     }
 
+    /// A private method to stake NEAR via Ref Finance by wrapping it to wNEAR and swapping it for another token.
+    /// You must supply:
+    /// - smart_contract_name: The AccountId of the contract to register storage for,
+    /// - deposit_amount: The U128 amount of NEAR to deposit and stake,
+    /// - receiver_id: The AccountId of the receiver of the staked tokens,
+    /// - min_amount_out: The U128 minimum amount of output tokens expected,
+    /// - pool_id: The String identifier of the Ref Finance pool to use.
+    /// This function:
+    /// - Panics if deposit_amount is 0 or pool_id is empty,
+    /// - Creates a chain of promises to deposit NEAR, register storage, and swap tokens,
+    /// - Returns a Promise representing the chained operations.
     #[private]
     pub fn stake_x_ref(&mut self, smart_contract_name: AccountId, deposit_amount: U128, receiver_id: AccountId, min_amount_out: U128, pool_id: String) -> Promise {
         if deposit_amount.0 == 0 {
@@ -213,6 +250,14 @@ impl ProxyContract {
         p_0.and(p_1).and(p_2).and(p_3).then(p_4)
     }
 
+    /// A method to initiate a compounding process by fetching user preferences and scheduling a callback.
+    /// This function:
+    /// - Takes no explicit parameters (uses self),
+    /// - Panics if the contract is not initialized,
+    /// - Enforces a 1-hour cooldown since the last compound call,
+    /// - Updates the last_compound_call timestamp,
+    /// - Creates a promise to fetch user data from the main account and calls compound_callback,
+    /// - Returns a vector containing the promise.
     pub fn compound(&mut self) -> Vec<Promise> {
         if self.owner.get().is_none() {
             ContractError::Unauthorized("Contract not initialized".to_string()).panic();
@@ -260,6 +305,16 @@ impl ProxyContract {
         promises
     }
     
+    /// A private callback method to process user preferences, claim rewards, and distribute profits after compounding.
+    /// You must supply:
+    /// - pre_claim_balance: The U128 balance of the contract before claiming rewards,
+    /// - caller: The AccountId of the caller who initiated the compound action.
+    /// This function:
+    /// - Checks for exactly one promise result from get_user,
+    /// - Parses user data and iterates over preferences,
+    /// - For active preferences, claims rewards from BoostFarm and Burrow,
+    /// - Calculates profit and transfers 5% to the caller if above 2 NEAR,
+    /// - Returns a PromiseOrValue containing a vector of promises.
     #[private]
     pub fn compound_callback(&mut self, pre_claim_balance: U128, caller: AccountId) -> PromiseOrValue<Vec<Promise>> {
         if env::promise_results_count() != 1 {
@@ -408,13 +463,17 @@ impl ProxyContract {
         PromiseOrValue::Value(all_promises)
     }
 
-
-
-   
-
-    
-
-
+    /// A method to reinvest the contract’s available balance into either Burrow or Ref Finance staking.
+    /// You must supply:
+    /// - contract_id: The AccountId of the target contract for reinvestment,
+    /// - min_amount_out: The U128 minimum amount of output tokens expected (for Stake option),
+    /// - pool_id: The String identifier of the Ref Finance pool (for Stake option),
+    /// - reinvest_to: The String specifying the reinvestment target ("Burrow" or "Stake").
+    /// This function:
+    /// - Checks if the balance exceeds 2 NEAR,
+    /// - Creates a promise for deposit_into_burrow or stake_x_ref based on reinvest_to,
+    /// - Panics if reinvest_to is invalid,
+    /// - Returns a vector of promises.
     pub fn reinvest(&mut self, contract_id: AccountId, min_amount_out: U128, pool_id: String, reinvest_to: String) -> Vec<Promise> {
         // self.assert_owner();
         let mut promises = Vec::new();
@@ -494,6 +553,14 @@ impl ProxyContract {
         promises
     }
 
+    /// A private callback method to log the result of a reinvestment action.
+    /// You must supply:
+    /// - contract_name: The String name of the contract involved in the reinvestment,
+    /// - action: The String describing the reinvestment action (e.g., "deposit_into_burrow").
+    /// This function:
+    /// - Checks for promise results,
+    /// - Logs success or failure based on the result,
+    /// - Returns a PromiseOrValue containing an empty tuple.
     #[private]
     pub fn handle_reinvest_result(&self, contract_name: String, action: String) -> PromiseOrValue<()> {
         if env::promise_results_count() > 0 {
@@ -514,6 +581,16 @@ impl ProxyContract {
         PromiseOrValue::Value(())
     }
 
+    /// A method to stake liquidity pool (LP) tokens into BoostFarm after registering storage.
+    /// You must supply:
+    /// - pool_id: The String identifier of the LP token pool,
+    /// - lp_token_amount: The U128 amount of LP tokens to stake,
+    /// - user_account: The AccountId of the user to register and stake for.
+    /// This function:
+    /// - Requires owner authorization,
+    /// - Panics if pool_id is empty or lp_token_amount is 0,
+    /// - Registers storage on Ref Finance and BoostFarm, then transfers LP tokens,
+    /// - Returns a Promise representing the chained operations.
     pub fn stake_lp_tokens(&mut self, pool_id: String, lp_token_amount: U128, user_account: AccountId) -> Promise {
         self.assert_owner();
         
@@ -576,6 +653,16 @@ impl ProxyContract {
             .then(transfer_promise)
     }
 
+    /// A method to unstake LP tokens from BoostFarm and withdraw associated rewards.
+    /// You must supply:
+    /// - seed_id: The String identifier of the staked seed,
+    /// - withdraw_amount: The U128 amount of LP tokens to withdraw,
+    /// - token_id: The AccountId of the reward token.
+    /// This function:
+    /// - Requires owner authorization,
+    /// - Panics if seed_id is empty or withdraw_amount is 0,
+    /// - Unlocks and withdraws the seed, then withdraws rewards,
+    /// - Returns a Promise representing the chained operations.
     pub fn unstake_lp(&mut self, seed_id: String, withdraw_amount: U128, token_id: AccountId) -> Promise {
         self.assert_owner();
         if seed_id.is_empty() {
@@ -620,6 +707,14 @@ impl ProxyContract {
         unlock_and_withdraw_seed.then(withdraw_reward_token)
     }
 
+    /// A private method to claim rewards from BoostFarm for a specific seed and withdraw them.
+    /// You must supply:
+    /// - seed_id: The String identifier of the seed to claim rewards for,
+    /// - token_id: The AccountId of the reward token.
+    /// This function:
+    /// - Panics if seed_id is empty,
+    /// - Claims rewards by seed and withdraws them,
+    /// - Returns a Promise representing the chained operations.
     #[private]
     pub fn claim_all_rewards(&mut self, seed_id: String, token_id: AccountId) -> Promise {
         if seed_id.is_empty() {
@@ -657,6 +752,19 @@ impl ProxyContract {
         claim_reward.then(withdraw_lp_reward)
     }
 
+    /// A method to remove liquidity from a Ref Finance pool and withdraw the underlying tokens.
+    /// You must supply:
+    /// - pool_id: The u64 identifier of the Ref Finance pool,
+    /// - shares: The U128 amount of LP shares to remove,
+    /// - min_token_amount: The U128 minimum amount of the first token expected,
+    /// - min_wrapped_near_amount: The U128 minimum amount of wNEAR expected,
+    /// - token_id: The AccountId of the first token,
+    /// - second_token_id: The AccountId of the second token.
+    /// This function:
+    /// - Requires owner authorization,
+    /// - Panics if shares is 0,
+    /// - Removes liquidity and withdraws both tokens,
+    /// - Returns a Promise representing the chained operations.
     pub fn remove_liquidity_and_withdraw_tokens(&mut self, pool_id: u64, shares: U128, min_token_amount: U128, min_wrapped_near_amount: U128, token_id: AccountId, second_token_id: AccountId) -> Promise {
         self.assert_owner();
         if shares.0 == 0 {
@@ -722,6 +830,13 @@ impl ProxyContract {
         remove_liquidity.then(withdraw_wrap).then(withdraw_black)
     }
 
+    /// A method to deposit NEAR into Burrow as collateral after wrapping it to wNEAR.
+    /// You must supply:
+    /// - deposit_amount: The U128 amount of NEAR to deposit.
+    /// This function:
+    /// - Panics if deposit_amount is 0,
+    /// - Registers storage on Burrow, wraps NEAR to wNEAR, and transfers it as collateral,
+    /// - Returns a Promise representing the chained operations.
     pub fn deposit_into_burrow(&mut self, deposit_amount: U128) -> Promise {
         if deposit_amount.0 == 0 {
             ContractError::InvalidInput("deposit_amount must be non-zero".to_string()).panic();
@@ -772,6 +887,14 @@ impl ProxyContract {
         storage_deposit_promise.then(deposit_promise).then(collateral_transfer)
     }
 
+    /// A method to deposit a specific token into Burrow as collateral.
+    /// You must supply:
+    /// - token_id: The AccountId of the token to deposit,
+    /// - deposit_amount: The U128 amount of the token to deposit.
+    /// This function:
+    /// - Panics if deposit_amount is 0,
+    /// - Transfers the token to Burrow and increases collateral,
+    /// - Returns a Promise representing the operation.
     pub fn deposit_into_burrow_pool(&mut self, token_id: AccountId, deposit_amount: U128) -> Promise {
         if deposit_amount.0 == 0 {
             ContractError::InvalidInput("deposit_amount must be non-zero".to_string()).panic();
@@ -791,6 +914,11 @@ impl ProxyContract {
         )
     }
 
+    /// A method to claim all farming rewards from Burrow.
+    /// This function:
+    /// - Takes no parameters (uses self),
+    /// - Calls account_farm_claim_all on the Burrow contract,
+    /// - Returns a Promise representing the operation.
     pub fn claim_from_burrow(&mut self) -> Promise {
         Promise::new(
             config::BURROW
@@ -805,6 +933,14 @@ impl ProxyContract {
         )
     }
 
+    /// A method to withdraw wNEAR from Burrow using an oracle call and unwrap it to NEAR.
+    /// You must supply:
+    /// - withdraw_amount: The U128 amount of wNEAR to withdraw.
+    /// This function:
+    /// - Requires owner authorization,
+    /// - Panics if withdraw_amount is 0,
+    /// - Decreases collateral via oracle call and unwraps wNEAR,
+    /// - Returns a Promise representing the chained operations.
     pub fn withdraw_from_borrow_pool(&mut self, withdraw_amount: U128) -> Promise {
         self.assert_owner();
         if withdraw_amount.0 == 0 {
@@ -848,6 +984,16 @@ impl ProxyContract {
         wrap_promise.then(wrap_promise2)
     }
 
+    /// A method to withdraw a specific token amount from the contract to a receiver.
+    /// You must supply:
+    /// - token_id: The AccountId of the token to withdraw,
+    /// - receiver_id: The AccountId of the recipient,
+    /// - amount: The U128 amount of the token to withdraw.
+    /// This function:
+    /// - Requires owner authorization and exactly 1 yoctoNEAR attached deposit,
+    /// - Panics if amount is 0 or deposit is incorrect,
+    /// - Transfers the token to the receiver,
+    /// - Returns a Promise representing the operation.
     pub fn withdraw_token(&mut self, token_id: AccountId, receiver_id: AccountId, amount: U128) -> Promise {
         self.assert_owner();
         let attached_deposit = env::attached_deposit();
@@ -873,11 +1019,25 @@ impl ProxyContract {
         )
     }
 
+    /// A method to retrieve the current NEAR balance of the contract.
+    /// This function:
+    /// - Takes no parameters (uses self),
+    /// - Requires owner authorization,
+    /// - Returns the contract’s available balance as a NearToken.
     pub fn get_contract_balance(&self) -> NearToken {
         self.assert_owner();
         env::account_balance()
     }
 
+    /// A payable method to withdraw a specified amount of NEAR to a beneficiary.
+    /// You must supply:
+    /// - beneficiary: The AccountId of the recipient,
+    /// - amount: The U128 amount of NEAR to withdraw.
+    /// This function:
+    /// - Requires owner authorization and exactly 1 yoctoNEAR attached deposit,
+    /// - Panics if amount is 0, deposit is incorrect, or balance is insufficient,
+    /// - Logs the transfer and initiates it,
+    /// - Returns a Promise representing the transfer operation.
     #[payable]
     pub fn withdraw_amount(&mut self, beneficiary: AccountId, amount: U128) -> Promise {
         self.assert_owner();
@@ -920,6 +1080,11 @@ mod tests {
     use near_sdk::test_utils::{VMContextBuilder, accounts};
     use near_sdk::testing_env;
 
+    /// A test to verify that the contract initializes correctly with the caller as the owner.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor,
+    /// - Initializes the contract,
+    /// - Asserts that the owner is set to accounts(0).
     #[test]
     fn test_new() {
         let context = VMContextBuilder::new()
@@ -930,6 +1095,11 @@ mod tests {
         assert_eq!(contract.get_owner(), accounts(0));
     }
 
+    /// A test to verify that the owner can successfully call assert_owner without panicking.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor,
+    /// - Initializes the contract,
+    /// - Calls assert_owner and expects no panic.
     #[test]
     fn test_assert_owner_success() {
         let context = VMContextBuilder::new()
@@ -940,6 +1110,11 @@ mod tests {
         contract.assert_owner();
     }
 
+    /// A test to verify that a non-owner call to assert_owner panics with an unauthorized error.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor and initializes the contract,
+    /// - Changes the context to accounts(1) as the predecessor,
+    /// - Calls assert_owner and expects a panic with "Unauthorized".
     #[test]
     #[should_panic(expected = "Unauthorized")]
     fn test_assert_owner_failure() {
@@ -955,6 +1130,11 @@ mod tests {
         contract.assert_owner();
     }
 
+    /// A test to verify that stake_lp_tokens panics when given an empty pool_id.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor,
+    /// - Initializes the contract,
+    /// - Calls stake_lp_tokens with an empty pool_id and expects a panic.
     #[test]
     #[should_panic(expected = "Invalid input: pool_id cannot be empty")]
     fn test_stake_lp_tokens_empty_pool_id() {
@@ -966,6 +1146,11 @@ mod tests {
         contract.stake_lp_tokens("".to_string(), U128(1_000), accounts(1));
     }
 
+    /// A test to verify that stake_x_ref panics when deposit_amount is zero.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor,
+    /// - Initializes the contract,
+    /// - Calls stake_x_ref with a zero deposit_amount and expects a panic.
     #[test]
     #[should_panic(expected = "Invalid input: deposit_amount must be non-zero")]
     fn test_stake_x_ref_zero_deposit() {
@@ -983,6 +1168,11 @@ mod tests {
         );
     }
 
+    /// A test to verify that stake_x_ref panics when pool_id is empty.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor,
+    /// - Initializes the contract,
+    /// - Calls stake_x_ref with an empty pool_id and expects a panic.
     #[test]
     #[should_panic(expected = "Invalid input: pool_id cannot be empty")]
     fn test_stake_x_ref_empty_pool_id() {
@@ -1000,8 +1190,11 @@ mod tests {
         );
     }
 
-
-
+    /// A test to verify that reinvest returns an empty promise vector when balance is insufficient.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor and 1 NEAR balance,
+    /// - Initializes the contract,
+    /// - Calls reinvest and asserts that no promises are returned due to insufficient balance.
     #[test]
     fn test_reinvest_insufficient_balance() {
         let context = VMContextBuilder::new()
@@ -1014,6 +1207,11 @@ mod tests {
         assert_eq!(promises.len(), 0);
     }
 
+    /// A test to verify that withdraw_amount works with sufficient balance and storage cost considered.
+    /// This test:
+    /// - Sets up a VM context with accounts(0) as the predecessor, 1 yoctoNEAR deposit, and 5 NEAR balance,
+    /// - Initializes the contract,
+    /// - Calls withdraw_amount and expects a valid Promise to be returned.
     #[test]
     fn test_withdraw_amount_with_storage() {
         let context = VMContextBuilder::new()
@@ -1026,3 +1224,4 @@ mod tests {
         let _promise = contract.withdraw_amount(accounts(1), U128(1_000_000_000_000_000_000_000_000));
     }
 }
+
