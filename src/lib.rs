@@ -1431,10 +1431,13 @@ impl ProxyContract {
     }
 }
 
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_sdk::test_utils::{ VMContextBuilder, accounts };
+    use near_sdk::test_utils::{VMContextBuilder, accounts};
     use near_sdk::testing_env;
 
     #[test]
@@ -1445,9 +1448,20 @@ mod tests {
         assert_eq!(contract.get_owner(), accounts(0));
     }
 
+
     #[test]
     fn test_assert_owner_success() {
         let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
+        testing_env!(context);
+        let contract = ProxyContract::new();
+        contract.assert_owner();
+    }
+
+    #[test]
+    fn test_assert_owner_main_id_success() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(config::MAIN_ID.parse().unwrap())
+            .build();
         testing_env!(context);
         let contract = ProxyContract::new();
         contract.assert_owner();
@@ -1467,11 +1481,28 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid input: pool_id cannot be empty")]
     fn test_stake_lp_tokens_empty_pool_id() {
-        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .attached_deposit(NearToken::from_yoctonear(1))
+            .build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         contract.stake_lp_tokens("".to_string(), U128(1_000), accounts(1));
     }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: lp_token_amount must be non-zero")]
+    fn test_stake_lp_tokens_zero_amount() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .attached_deposit(NearToken::from_yoctonear(1))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.stake_lp_tokens("pool1".to_string(), U128(0), accounts(1));
+    }
+
+
 
     #[test]
     #[should_panic(expected = "Invalid input: deposit_amount must be non-zero")]
@@ -1495,21 +1526,72 @@ mod tests {
     fn test_reinvest_insufficient_balance() {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(0))
-            .account_balance(NearToken::from_near(1))
+            .account_balance(NearToken::from_yoctonear(1_000_000_000_000_000_000_000_000))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        let promises = contract.reinvest(accounts(1), U128(0), U128(0), "123".to_string(), "Burrow".to_string());
+        assert_eq!(promises.len(), 0);
+    }
+
+    #[test]
+    fn test_reinvest_valid_burrow() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .account_balance(NearToken::from_yoctonear(3_000_000_000_000_000_000_000_000))
             .build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         let promises = contract.reinvest(
             accounts(1),
-            U128(0),
+            U128(1_000),
+            U128(1_000_000_000_000_000_000_000_000),
             "123".to_string(),
-            "Burrow".to_string()
+            "Burrow".to_string(),
         );
-        assert_eq!(promises.len(), 0);
+        assert_eq!(promises.len(), 1);
     }
 
     #[test]
-    fn test_withdraw_amount_with_storage() {
+    #[should_panic(expected = "Invalid input: Invalid reinvest_to option")]
+    fn test_reinvest_invalid_option() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .account_balance(NearToken::from_yoctonear(3_000_000_000_000_000_000_000_000))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.reinvest(accounts(1), U128(1_000), U128(1_000), "123".to_string(), "Invalid".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "Requires exactly 1 yoctoNEAR attached deposit")]
+    fn test_withdraw_amount_invalid_deposit() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .attached_deposit(NearToken::from_yoctonear(0))
+            .account_balance(NearToken::from_near(5))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.withdraw_amount(accounts(1), U128(1_000_000_000_000_000_000_000_000));
+    }
+
+    #[test]
+    #[should_panic(expected = "Insufficient balance")]
+    fn test_withdraw_amount_insufficient_balance() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .attached_deposit(NearToken::from_yoctonear(1))
+            .account_balance(NearToken::from_near(1))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.withdraw_amount(accounts(1), U128(2_000_000_000_000_000_000_000_000));
+    }
+
+    #[test]
+    fn test_withdraw_amount_success() {
         let context = VMContextBuilder::new()
             .predecessor_account_id(accounts(0))
             .attached_deposit(NearToken::from_yoctonear(1))
@@ -1517,29 +1599,154 @@ mod tests {
             .build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
-        let _promise = contract.withdraw_amount(
-            accounts(1),
-            U128(1_000_000_000_000_000_000_000_000)
-        );
+        let _promise = contract.withdraw_amount(accounts(1), U128(1_000_000_000_000_000_000_000_000));
     }
 
     #[test]
     #[should_panic(expected = "Compound can only be called once every hour")]
-    fn test_compound_multiple_callers() {
+    fn test_compound_too_soon() {
         let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(1))
+            .predecessor_account_id(accounts(0))
             .block_timestamp(0)
             .build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
-
-        let promises = contract.compound(U128(1000));
-        assert_eq!(promises.len(), 1);
+        contract.compound(123);
 
         let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(2))
-            .block_timestamp(1_000_000_000)
+            .predecessor_account_id(accounts(0))
+            .block_timestamp(1_000_000_000_000)
             .build();
         testing_env!(context);
+        contract.compound(123);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: seed_id cannot be empty")]
+    fn test_unstake_lp_empty_seed_id() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.unstake_lp("".to_string(), U128(1_000), accounts(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: withdraw_amount must be non-zero")]
+    fn test_unstake_lp_zero_amount() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.unstake_lp("seed1".to_string(), U128(0), accounts(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: seed_id cannot be empty")]
+    fn test_claim_all_rewards_empty_seed_id() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.claim_all_rewards("".to_string(), accounts(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: shares must be non-zero")]
+    fn test_remove_liquidity_zero_shares() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.remove_liquidity_and_withdraw_tokens(123, U128(0), U128(0), U128(0), accounts(1), accounts(2));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: deposit_amount must be non-zero")]
+    fn test_deposit_into_burrow_zero_amount() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.deposit_into_burrow(U128(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: deposit_amount must be non-zero")]
+    fn test_deposit_into_burrow_pool_zero_amount() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.deposit_into_burrow_pool(accounts(1), U128(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: withdraw_amount must be non-zero")]
+    fn test_withdraw_from_borrow_pool_zero_amount() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.withdraw_from_borrow_pool(U128(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "Requires exactly 1 yoctoNEAR attached deposit")]
+    fn test_withdraw_token_invalid_deposit() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .attached_deposit(NearToken::from_yoctonear(0))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.withdraw_token(accounts(1), accounts(2), U128(1_000));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid input: amount must be non-zero")]
+    fn test_withdraw_token_zero_amount() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .attached_deposit(NearToken::from_yoctonear(1))
+            .build();
+        testing_env!(context);
+        let mut contract = ProxyContract::new();
+        contract.withdraw_token(accounts(1), accounts(2), U128(0));
+    }
+
+    #[test]
+    fn test_get_contract_balance() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .account_balance(NearToken::from_near(5))
+            .build();
+        testing_env!(context);
+        let contract = ProxyContract::new();
+        let balance = contract.get_contract_balance();
+        assert_eq!(balance, NearToken::from_near(5));
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_get_contract_balance_unauthorized() {
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(0))
+            .account_balance(NearToken::from_near(5))
+            .build();
+        testing_env!(context);
+        let contract = ProxyContract::new();
+        let context = VMContextBuilder::new()
+            .predecessor_account_id(accounts(1))
+            .build();
+        testing_env!(context);
+        contract.get_contract_balance();
     }
 }
