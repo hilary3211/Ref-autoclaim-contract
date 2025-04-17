@@ -1233,62 +1233,7 @@ impl ProxyContract {
     //     remove_liquidity.then(withdraw_wrap).then(withdraw_black)
     // }
 
-    // pub fn deposit_into_burrow(&mut self, deposit_amount: U128) -> Promise {
-    //     if deposit_amount.0 == 0 {
-    //         ContractError::InvalidInput("deposit_amount must be non-zero".to_string()).panic();
-    //     }
 
-    //     let storage_deposit_promise = Promise::new(
-    //         config::BURROW
-    //             .parse()
-    //             .unwrap_or_else(|_|
-    //                 ContractError::InvalidAccountId(config::BURROW.to_string()).panic()
-    //             )
-    //     ).function_call(
-    //         "storage_deposit".to_string(),
-    //         json!({})
-    //             .to_string()
-    //             .into_bytes(),
-    //         NearToken::from_millinear(250),
-    //         config::GAS_STORAGE_DEPOSIT
-    //     );
-
-    //     let deposit_promise = Promise::new(
-    //         config::WRAP
-    //             .parse()
-    //             .unwrap_or_else(|_|
-    //                 ContractError::InvalidAccountId(config::WRAP.to_string()).panic()
-    //             )
-    //     ).function_call(
-    //         "near_deposit".to_string(),
-    //         json!({})
-    //             .to_string()
-    //             .into_bytes(),
-    //         NearToken::from_yoctonear(deposit_amount.0),
-    //         config::GAS_NEAR_DEPOSIT
-    //     );
-
-    //     let collateral_transfer = Promise::new(
-    //         config::WRAP
-    //             .parse()
-    //             .unwrap_or_else(|_|
-    //                 ContractError::InvalidAccountId(config::WRAP.to_string()).panic()
-    //             )
-    //     ).function_call(
-    //         "ft_transfer_call".to_string(),
-    //         json!({
-    //             "receiver_id": config::BURROW,
-    //             "amount": deposit_amount,
-    //             "msg": json!({"Execute": {"actions": [{"IncreaseCollateral": {"token_id": config::WRAP, "max_amount": deposit_amount}}]}}).to_string()
-    //         })
-    //             .to_string()
-    //             .into_bytes(),
-    //         NearToken::from_yoctonear(1),
-    //         config::GAS_FT_TRANSFER
-    //     );
-
-    //     storage_deposit_promise.then(deposit_promise).then(collateral_transfer)
-    // }
 
     #[payable]
     pub fn deposit_into_burrow(&mut self, deposit_amount: U128) -> Promise {
