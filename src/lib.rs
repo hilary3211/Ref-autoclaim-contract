@@ -63,12 +63,12 @@ mod config {
     pub const WRAP: &str = "wrap.near";
     pub const ORACLE: &str = "priceoracle.near";
 
-    pub const GAS_STORAGE_DEPOSIT: Gas = Gas::from_tgas(5);
+    pub const GAS_STORAGE_DEPOSIT: Gas = Gas::from_tgas(6);
     pub const GAS_FT_TRANSFER: Gas = Gas::from_tgas(50);
-    pub const GAS_CLAIM_REWARD: Gas = Gas::from_tgas(50);
+    pub const GAS_CLAIM_REWARD: Gas = Gas::from_tgas(10);
     pub const GAS_REMOVE_LIQUIDITY: Gas = Gas::from_tgas(60);
     pub const GAS_ORACLE_CALL: Gas = Gas::from_tgas(70);
-    pub const GAS_NEAR_DEPOSIT: Gas = Gas::from_tgas(20);
+    pub const GAS_NEAR_DEPOSIT: Gas = Gas::from_tgas(10);
 }
 
 const NEAR_DECIMALS: u8 = 24;
@@ -130,7 +130,9 @@ impl ProxyContract {
         }
     }
 
-    fn parse_preference(pref: &Value) -> Option<(String, AccountId, AccountId, bool, String)> {
+    fn parse_preference(
+        pref: &Value
+    ) -> Option<(String, AccountId, AccountId, bool, String, String)> {
         let seed_id = pref
             .get("seed_id")
             .and_then(|v| v.as_str())
@@ -143,6 +145,14 @@ impl ProxyContract {
             .get("is_active")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let invested_in = pref
+            .get("invested_in")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                env::log_str("Missing or invalid reinvest_to, defaulting to 'Burrow'");
+                "Burrow".to_string()
+            });
         let reinvest_to = pref
             .get("reinvest_to")
             .and_then(|v| v.as_str())
@@ -152,11 +162,11 @@ impl ProxyContract {
                 "Burrow".to_string()
             });
 
-        Some((seed_id, token_id, smart_contract_name, is_active, reinvest_to))
+        Some((seed_id, token_id, smart_contract_name, is_active, invested_in, reinvest_to))
     }
 
     //This function is used for the old smart contract that uses true as string instead of bool
-    // fn parse_preference(pref: &Value) -> Option<(String, AccountId, AccountId, bool, String)> {
+    // fn parse_preference(pref: &Value) -> Option<(String, AccountId, AccountId, bool, String, String)> {
     //     let seed_id = pref.get("seed_id").and_then(|v| v.as_str()).map(String::from)?;
     //     if seed_id.len() > 64 {
     //         env::log_str("seed_id exceeds maximum length of 64 characters");
@@ -173,6 +183,15 @@ impl ProxyContract {
     //         .and_then(|v| v.as_str())
     //         .map(|s| s.to_lowercase() == "true")
     //         .unwrap_or(false);
+
+    //     let invested_in = pref
+    //         .get("invested_in")
+    //         .and_then(|v| v.as_str())
+    //         .map(String::from)
+    //         .unwrap_or_else(|| {
+    //             env::log_str("Missing or invalid reinvest_to, defaulting to 'Burrow'");
+    //             "Burrow".to_string()
+    //         });
     //     let reinvest_to = pref.get("reinvest_to")
     //         .and_then(|v| v.as_str())
     //         .map(String::from)
@@ -181,7 +200,7 @@ impl ProxyContract {
     //             "Burrow".to_string()
     //         });
 
-    //     Some((seed_id, token_id, smart_contract_name, is_active, reinvest_to))
+    //     Some((seed_id, token_id, smart_contract_name, is_active, invested_in, reinvest_to))
     // }
 
     pub fn get_owner(&self) -> AccountId {
@@ -216,6 +235,7 @@ impl ProxyContract {
                     "receiver_id": "v2.ref-finance.near",
                     "amount": deposit_amount,
                     "msg": json!({
+                        "force": 0,
                         "actions": [{
                             "pool_id": wnear_to_ref_pool_id,
                             "token_in": config::WRAP,
@@ -228,12 +248,12 @@ impl ProxyContract {
                 .to_string()
                 .into_bytes(),
             NearToken::from_yoctonear(1),
-            Gas::from_tgas(25)
+            Gas::from_tgas(35)
         );
 
         p_0.then(p_1).then(
             Self::ext(env::current_account_id())
-                .with_static_gas(Gas::from_tgas(100))
+                .with_static_gas(Gas::from_tgas(60))
                 .stake_x_ref_callback(
                     smart_contract_name,
                     deposit_amount,
@@ -277,7 +297,7 @@ impl ProxyContract {
                     )
                     .then(
                         Self::ext(env::current_account_id())
-                            .with_static_gas(Gas::from_tgas(100))
+                            .with_static_gas(Gas::from_tgas(40))
                             .stake_x_ref_transfer_callback(
                                 smart_contract_name,
                                 ref_amount,
@@ -324,6 +344,7 @@ impl ProxyContract {
                                 "receiver_id": "v2.ref-finance.near",
                                 "amount": deposit_amount,
                                 "msg": json!({
+                                    "force": 0,
                                     "actions": [{
                                         "pool_id": wnear_to_ref_pool_id,
                                         "token_in": config::WRAP,
@@ -336,14 +357,14 @@ impl ProxyContract {
                         .to_string()
                         .into_bytes(),
                     NearToken::from_yoctonear(1),
-                    Gas::from_tgas(25)
+                    Gas::from_tgas(35)
                 );
 
                 p_1.then(p_2)
                     .then(p_3)
                     .then(
                         Self::ext(env::current_account_id())
-                            .with_static_gas(Gas::from_tgas(50))
+                            .with_static_gas(Gas::from_tgas(40))
                             .stake_x_ref_callback(
                                 smart_contract_name,
                                 deposit_amount,
@@ -544,14 +565,13 @@ impl ProxyContract {
     }
 
     pub fn compound(&mut self, pool_id: u64) -> Promise {
-        // self.assert_not_processing();
-        // self.is_processing = false;
-
         let current_time = env::block_timestamp();
         assert!(
             current_time - self.last_compound_call >= 3_600_000_000_000,
             "Compound can only be called once every hour"
         );
+        self.assert_not_processing();
+        self.is_processing = true;
 
         let caller = env::predecessor_account_id();
         let owner = self.owner.get().as_ref().expect("Contract not initialized").clone();
@@ -595,7 +615,7 @@ impl ProxyContract {
                         .to_string()
                         .into_bytes(),
                     NearToken::from_yoctonear(0),
-                    Gas::from_tgas(280)
+                    Gas::from_tgas(285)
                 )
             )
     }
@@ -639,13 +659,16 @@ impl ProxyContract {
 
         match env::promise_result(1) {
             PromiseResult::Successful(result) => {
-                let user_data: Value = serde_json
-                    ::from_slice(&result)
-                    .unwrap_or_else(|e| ContractError::SerializationFailed(e.to_string()).panic());
+                let user_data: Value = serde_json::from_slice(&result).unwrap_or_else(|e| {
+                    self.is_processing = false;
+                    ContractError::SerializationFailed(e.to_string()).panic()
+                });
 
                 let preferences = match user_data.get("preferences").and_then(|v| v.as_array()) {
                     Some(prefs) => prefs,
                     None => {
+                        self.is_processing = false;
+                        self.last_compound_call = env::block_timestamp();
                         env::log_str("No preferences found in user data");
                         &Vec::new()
                     }
@@ -654,9 +677,14 @@ impl ProxyContract {
                 let mut claim_promises = Vec::new();
 
                 for pref in preferences {
-                    let (seed_id, token_id, smart_contract_name, is_active, reinvest_to) = match
-                        Self::parse_preference(pref)
-                    {
+                    let (
+                        seed_id,
+                        token_id,
+                        smart_contract_name,
+                        is_active,
+                        invested_in,
+                        reinvest_to,
+                    ) = match Self::parse_preference(pref) {
                         Some(data) => data,
                         None => {
                             continue;
@@ -667,18 +695,7 @@ impl ProxyContract {
                         continue;
                     }
 
-                    if reinvest_to == "Burrow" {
-                        let claim_all_rewards = Promise::new(
-                            env::current_account_id()
-                        ).function_call(
-                            "claim_all_rewards".to_string(),
-                            json!({"seed_id": seed_id, "token_id": token_id})
-                                .to_string()
-                                .into_bytes(),
-                            NearToken::from_yoctonear(0),
-                            Gas::from_tgas(20)
-                        );
-
+                    if invested_in == "Burrow" {
                         let claim_from_burrow = Promise::new(
                             env::current_account_id()
                         ).function_call(
@@ -687,10 +704,10 @@ impl ProxyContract {
                                 .to_string()
                                 .into_bytes(),
                             NearToken::from_yoctonear(0),
-                            Gas::from_tgas(50)
+                            Gas::from_tgas(20)
                         );
 
-                        let handle_promise = claim_all_rewards.and(claim_from_burrow);
+                        let handle_promise = claim_from_burrow;
 
                         claim_promises.push(handle_promise);
                     } else {
@@ -713,6 +730,7 @@ impl ProxyContract {
 
                 if claim_promises.is_empty() {
                     self.last_compound_call = env::block_timestamp();
+                    self.is_processing = false;
                     env::log_str("No active preferences to process");
                     return PromiseOrValue::Value(vec![]);
                 }
@@ -735,7 +753,7 @@ impl ProxyContract {
                                 .to_string()
                                 .into_bytes(),
                             NearToken::from_yoctonear(0),
-                            Gas::from_tgas(230)
+                            Gas::from_tgas(180)
                         )
                     );
 
@@ -765,10 +783,9 @@ impl ProxyContract {
         let owner_id = self.owner.get().as_ref().expect("Contract not initialized");
 
         if predecessor_id != current_id && predecessor_id != *owner_id {
+            self.is_processing = false;
             env::panic_str("Callback can only be called by the contract itself or the owner");
         }
-
-        self.last_compound_call = env::block_timestamp();
 
         let mut final_promises = Vec::new();
         let post_claim_balance = env::account_balance().as_yoctonear();
@@ -788,13 +805,13 @@ impl ProxyContract {
             let caller_share_near = (balance_increase * 5) / 100;
 
             let remaining_balance = (balance_increase * 95) / 100;
-            let caller_share_ref =
+            let near_to_ref_conv =
                 (remaining_balance * near_to_ref_rate.0) / (10u128).pow(NEAR_DECIMALS as u32);
 
             env::log_str(
                 &format!(
                     "Reinvesting {} yoctoREF for caller {} (from {} yoctoNEAR at rate {})",
-                    caller_share_ref,
+                    near_to_ref_conv,
                     &caller,
                     caller_share_near,
                     near_to_ref_rate.0
@@ -805,8 +822,8 @@ impl ProxyContract {
                 Promise::new(env::current_account_id()).function_call(
                     "reinvest".to_string(),
                     json!({
-                            "contract_id": smart_contract_name.parse::<AccountId>().unwrap_or_else(|_| ContractError::InvalidAccountId(smart_contract_name.clone()).panic()),
-                            "min_amount_out": U128(caller_share_ref),
+                            "contract_id": smart_contract_name.parse::<AccountId>().unwrap_or_else(|_| {self.is_processing = false; ContractError::InvalidAccountId(smart_contract_name.clone()).panic()}),
+                            "min_amount_out": U128(near_to_ref_conv),
                             "deposit_amount" : U128(remaining_balance),
                             "pool_id": pool_id.to_string(),
                             "reinvest_to": reinvest_to,
@@ -814,7 +831,7 @@ impl ProxyContract {
                         .to_string()
                         .into_bytes(),
                     NearToken::from_yoctonear(0),
-                    Gas::from_tgas(200)
+                    Gas::from_tgas(140)
                 )
             );
             final_promises.push(
@@ -831,6 +848,7 @@ impl ProxyContract {
         }
 
         self.is_processing = false;
+        self.last_compound_call = env::block_timestamp();
         PromiseOrValue::Value(final_promises)
     }
 
@@ -849,6 +867,7 @@ impl ProxyContract {
         let two_near = 2_000_000_000_000_000_000_000_000;
 
         if balance <= two_near {
+            self.is_processing = false;
             env::log_str(&format!("Insufficient balance for reinvestment: {}", balance));
             return promises;
         }
@@ -892,7 +911,7 @@ impl ProxyContract {
                         .to_string()
                         .into_bytes(),
                     NearToken::from_yoctonear(0),
-                    Gas::from_tgas(190)
+                    Gas::from_tgas(120)
                 )
                 .then(
                     Promise::new(env::current_account_id()).function_call(
@@ -909,6 +928,7 @@ impl ProxyContract {
                 );
             promises.push(swap_promise);
         } else {
+            self.is_processing = false;
             ContractError::InvalidInput(
                 format!("Invalid reinvest_to option: {}", reinvest_to)
             ).panic();
@@ -944,6 +964,7 @@ impl ProxyContract {
         PromiseOrValue::Value(())
     }
 
+    #[payable]
     pub fn stake_lp_tokens(
         &mut self,
         pool_id: String,
@@ -1098,7 +1119,20 @@ impl ProxyContract {
             config::GAS_CLAIM_REWARD
         );
 
-        unlock_and_withdraw_seed.then(withdraw_reward_token)
+        let delete_preference = Promise::new(
+            config::MAIN_ID
+                .parse()
+                .unwrap_or_else(|_|
+                    ContractError::InvalidAccountId(config::MAIN_ID.to_string()).panic()
+                )
+        ).function_call(
+            "delete_preference".to_string(),
+            json!({"seed_id": seed_id}).to_string().into_bytes(),
+            NearToken::from_yoctonear(0),
+            Gas::from_tgas(20)
+        );
+
+        unlock_and_withdraw_seed.then(withdraw_reward_token).then(delete_preference)
     }
 
     #[private]
@@ -1120,125 +1154,172 @@ impl ProxyContract {
             Gas::from_tgas(6)
         );
 
-        let withdraw_lp_reward = Promise::new(
-            config::BOOSTFARM
-                .parse()
-                .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::BOOSTFARM.to_string()).panic()
-                )
-        ).function_call(
-            "withdraw_reward".to_string(),
-            json!({"token_id": token_id}).to_string().into_bytes(),
-            NearToken::from_yoctonear(0),
-            Gas::from_tgas(6)
-        );
-
-        claim_reward.then(withdraw_lp_reward)
+        claim_reward
     }
 
-    pub fn remove_liquidity_and_withdraw_tokens(
-        &mut self,
-        pool_id: u64,
-        shares: U128,
-        min_token_amount: U128,
-        min_wrapped_near_amount: U128,
-        token_id: AccountId,
-        second_token_id: AccountId
-    ) -> Promise {
-        self.assert_owner();
-        if shares.0 == 0 {
-            ContractError::InvalidInput("shares must be non-zero".to_string()).panic();
-        }
+    // pub fn remove_liquidity_and_withdraw_tokens(
+    //     &mut self,
+    //     pool_id: u64,
+    //     shares: U128,
+    //     min_token_amount: U128,
+    //     min_wrapped_near_amount: U128,
+    //     token_id: AccountId,
+    //     second_token_id: AccountId
+    // ) -> Promise {
+    //     self.assert_owner();
+    //     if shares.0 == 0 {
+    //         ContractError::InvalidInput("shares must be non-zero".to_string()).panic();
+    //     }
 
-        let remove_liquidity = Promise::new(
-            config::REF_FINANCE
-                .parse()
-                .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::REF_FINANCE.to_string()).panic()
-                )
-        ).function_call(
-            "remove_liquidity".to_string(),
-            json!({
-                "pool_id": pool_id,
-                "shares": shares,
-                "min_amounts": [min_token_amount, min_wrapped_near_amount],
-            })
-                .to_string()
-                .into_bytes(),
-            NearToken::from_yoctonear(1),
-            config::GAS_REMOVE_LIQUIDITY
-        );
+    //     let remove_liquidity = Promise::new(
+    //         config::REF_FINANCE
+    //             .parse()
+    //             .unwrap_or_else(|_|
+    //                 ContractError::InvalidAccountId(config::REF_FINANCE.to_string()).panic()
+    //             )
+    //     ).function_call(
+    //         "remove_liquidity".to_string(),
+    //         json!({
+    //             "pool_id": pool_id,
+    //             "shares": shares,
+    //             "min_amounts": [min_token_amount, min_wrapped_near_amount],
+    //         })
+    //             .to_string()
+    //             .into_bytes(),
+    //         NearToken::from_yoctonear(1),
+    //         config::GAS_REMOVE_LIQUIDITY
+    //     );
 
-        let withdraw_wrap = Promise::new(
-            config::REF_FINANCE
-                .parse()
-                .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::REF_FINANCE.to_string()).panic()
-                )
-        ).function_call(
-            "withdraw".to_string(),
-            json!({
-                "token_id": token_id,
-                "amount": "0",
-                "unregister": false,
-                "skip_unwrap_near": false,
-            })
-                .to_string()
-                .into_bytes(),
-            NearToken::from_yoctonear(1),
-            config::GAS_FT_TRANSFER
-        );
+    //     let withdraw_wrap = Promise::new(
+    //         config::REF_FINANCE
+    //             .parse()
+    //             .unwrap_or_else(|_|
+    //                 ContractError::InvalidAccountId(config::REF_FINANCE.to_string()).panic()
+    //             )
+    //     ).function_call(
+    //         "withdraw".to_string(),
+    //         json!({
+    //             "token_id": token_id,
+    //             "amount": "0",
+    //             "unregister": false,
+    //             "skip_unwrap_near": false,
+    //         })
+    //             .to_string()
+    //             .into_bytes(),
+    //         NearToken::from_yoctonear(1),
+    //         config::GAS_FT_TRANSFER
+    //     );
 
-        let withdraw_black = Promise::new(
-            config::REF_FINANCE
-                .parse()
-                .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::REF_FINANCE.to_string()).panic()
-                )
-        ).function_call(
-            "withdraw".to_string(),
-            json!({
-                "token_id": second_token_id,
-                "amount": "0",
-                "unregister": false,
-                "skip_unwrap_near": false,
-            })
-                .to_string()
-                .into_bytes(),
-            NearToken::from_yoctonear(1),
-            config::GAS_FT_TRANSFER
-        );
+    //     let withdraw_black = Promise::new(
+    //         config::REF_FINANCE
+    //             .parse()
+    //             .unwrap_or_else(|_|
+    //                 ContractError::InvalidAccountId(config::REF_FINANCE.to_string()).panic()
+    //             )
+    //     ).function_call(
+    //         "withdraw".to_string(),
+    //         json!({
+    //             "token_id": second_token_id,
+    //             "amount": "0",
+    //             "unregister": false,
+    //             "skip_unwrap_near": false,
+    //         })
+    //             .to_string()
+    //             .into_bytes(),
+    //         NearToken::from_yoctonear(1),
+    //         config::GAS_FT_TRANSFER
+    //     );
 
-        remove_liquidity.then(withdraw_wrap).then(withdraw_black)
-    }
+    //     remove_liquidity.then(withdraw_wrap).then(withdraw_black)
+    // }
 
+    // pub fn deposit_into_burrow(&mut self, deposit_amount: U128) -> Promise {
+    //     if deposit_amount.0 == 0 {
+    //         ContractError::InvalidInput("deposit_amount must be non-zero".to_string()).panic();
+    //     }
+
+    //     let storage_deposit_promise = Promise::new(
+    //         config::BURROW
+    //             .parse()
+    //             .unwrap_or_else(|_|
+    //                 ContractError::InvalidAccountId(config::BURROW.to_string()).panic()
+    //             )
+    //     ).function_call(
+    //         "storage_deposit".to_string(),
+    //         json!({})
+    //             .to_string()
+    //             .into_bytes(),
+    //         NearToken::from_millinear(250),
+    //         config::GAS_STORAGE_DEPOSIT
+    //     );
+
+    //     let deposit_promise = Promise::new(
+    //         config::WRAP
+    //             .parse()
+    //             .unwrap_or_else(|_|
+    //                 ContractError::InvalidAccountId(config::WRAP.to_string()).panic()
+    //             )
+    //     ).function_call(
+    //         "near_deposit".to_string(),
+    //         json!({})
+    //             .to_string()
+    //             .into_bytes(),
+    //         NearToken::from_yoctonear(deposit_amount.0),
+    //         config::GAS_NEAR_DEPOSIT
+    //     );
+
+    //     let collateral_transfer = Promise::new(
+    //         config::WRAP
+    //             .parse()
+    //             .unwrap_or_else(|_|
+    //                 ContractError::InvalidAccountId(config::WRAP.to_string()).panic()
+    //             )
+    //     ).function_call(
+    //         "ft_transfer_call".to_string(),
+    //         json!({
+    //             "receiver_id": config::BURROW,
+    //             "amount": deposit_amount,
+    //             "msg": json!({"Execute": {"actions": [{"IncreaseCollateral": {"token_id": config::WRAP, "max_amount": deposit_amount}}]}}).to_string()
+    //         })
+    //             .to_string()
+    //             .into_bytes(),
+    //         NearToken::from_yoctonear(1),
+    //         config::GAS_FT_TRANSFER
+    //     );
+
+    //     storage_deposit_promise.then(deposit_promise).then(collateral_transfer)
+    // }
+
+    #[payable]
     pub fn deposit_into_burrow(&mut self, deposit_amount: U128) -> Promise {
         if deposit_amount.0 == 0 {
-            ContractError::InvalidInput("deposit_amount must be non-zero".to_string()).panic();
+            ContractError::InvalidInput("Deposit amount must be non-zero".to_string()).panic();
         }
 
-        let storage_deposit_promise = Promise::new(
-            config::BURROW
-                .parse()
-                .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::BURROW.to_string()).panic()
+        let min_deposit = NearToken::from_yoctonear(deposit_amount.0);
+        let attached = env::attached_deposit();
+        if attached < min_deposit {
+            ContractError::InsufficientDeposit(
+                format!(
+                    "Attached deposit {} NEAR is less than required {} NEAR",
+                    attached.as_near(),
+                    min_deposit.as_near()
                 )
-        ).function_call(
-            "storage_deposit".to_string(),
-            json!({})
-                .to_string()
-                .into_bytes(),
-            NearToken::from_millinear(250),
-            config::GAS_STORAGE_DEPOSIT
-        );
+            ).panic();
+        }
 
-        let deposit_promise = Promise::new(
-            config::WRAP
-                .parse()
-                .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::WRAP.to_string()).panic()
-                )
-        ).function_call(
+        let burrow_account: AccountId = config::BURROW
+            .parse()
+            .unwrap_or_else(|_| {
+                ContractError::InvalidAccountId(config::BURROW.to_string()).panic()
+            });
+        let wrap_account: AccountId = config::WRAP
+            .parse()
+            .unwrap_or_else(|_| {
+                ContractError::InvalidAccountId(config::WRAP.to_string()).panic()
+            });
+
+        let deposit_promise = Promise::new(wrap_account.clone()).function_call(
             "near_deposit".to_string(),
             json!({})
                 .to_string()
@@ -1247,26 +1328,155 @@ impl ProxyContract {
             config::GAS_NEAR_DEPOSIT
         );
 
-        let collateral_transfer = Promise::new(
-            config::WRAP
-                .parse()
-                .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::WRAP.to_string()).panic()
-                )
-        ).function_call(
+        let collateral_transfer = Promise::new(wrap_account.clone()).function_call(
             "ft_transfer_call".to_string(),
             json!({
-                "receiver_id": config::BURROW,
-                "amount": deposit_amount,
-                "msg": json!({"Execute": {"actions": [{"IncreaseCollateral": {"token_id": config::WRAP, "max_amount": deposit_amount}}]}}).to_string()
-            })
+                    "receiver_id": config::BURROW,
+                    "amount": deposit_amount,
+                    "msg": json!({"Execute": {"actions": [{"IncreaseCollateral": {"token_id": config::WRAP, "max_amount": deposit_amount}}]}}).to_string()
+                })
                 .to_string()
                 .into_bytes(),
             NearToken::from_yoctonear(1),
-            config::GAS_FT_TRANSFER
+            Gas::from_tgas(10)
         );
 
-        storage_deposit_promise.then(deposit_promise).then(collateral_transfer)
+        deposit_promise
+            .then(collateral_transfer)
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(Gas::from_tgas(32))
+                    .deposit_into_burrow_callback(
+                        deposit_amount.0.to_string(),
+                        burrow_account,
+                        wrap_account
+                    )
+            )
+    }
+
+    #[private]
+    pub fn deposit_into_burrow_callback(
+        &mut self,
+        deposit_amount: String,
+        burrow_account: AccountId,
+        wrap_account: AccountId,
+        #[callback_result] transfer_result: Result<Value, PromiseError>
+    ) -> Promise {
+        let deposit_amount: U128 = match deposit_amount.parse::<u128>() {
+            Ok(value) => U128(value),
+            Err(e) =>
+                ContractError::InvalidInput(
+                    format!("Failed to parse deposit_amount: {}", e)
+                ).panic(),
+        };
+
+        env::log_str(
+            &format!(
+                "Callback received: deposit_amount={}, burrow_account={}, wrap_account={}",
+                deposit_amount.0,
+                burrow_account,
+                wrap_account
+            )
+        );
+
+        match transfer_result {
+            Ok(json_value) => {
+                let result_str = json_value.as_str().unwrap_or("");
+                env::log_str(&format!("Transfer result: {:?}", result_str));
+
+                let is_failure = result_str == "0" || result_str.contains("not registered");
+
+                if is_failure {
+                    env::log_str(
+                        "Detected transfer failure (e.g., account not registered), performing storage deposit..."
+                    );
+
+                    let storage_deposit_promise = Promise::new(burrow_account).function_call(
+                        "storage_deposit".to_string(),
+                        json!({"account_id": env::current_account_id().to_string()})
+                            .to_string()
+                            .into_bytes(),
+                        NearToken::from_millinear(250),
+                        config::GAS_STORAGE_DEPOSIT
+                    );
+
+                    let deposit_promise = Promise::new(wrap_account.clone()).function_call(
+                        "near_deposit".to_string(),
+                        json!({})
+                            .to_string()
+                            .into_bytes(),
+                        NearToken::from_yoctonear(deposit_amount.0),
+                        config::GAS_NEAR_DEPOSIT
+                    );
+
+                    let collateral_transfer = Promise::new(wrap_account).function_call(
+                        "ft_transfer_call".to_string(),
+                        json!({
+                                "receiver_id": config::BURROW,
+                                "amount": deposit_amount,
+                                "msg": json!({"Execute": {"actions": [{"IncreaseCollateral": {"token_id": config::WRAP, "max_amount": deposit_amount}}]}}).to_string()
+                            })
+                            .to_string()
+                            .into_bytes(),
+                        NearToken::from_yoctonear(1),
+                        Gas::from_tgas(10)
+                    );
+
+                    storage_deposit_promise.then(deposit_promise).then(collateral_transfer)
+                } else {
+                    env::log_str("Deposit to Burrow successful");
+                    Promise::new(env::current_account_id())
+                }
+            }
+            Err(e) => {
+                let error_str = format!("{:?}", e);
+                env::log_str(&format!("Deposit failed with error: {}", error_str));
+
+                let needs_storage_deposit =
+                    error_str.contains("Account not registered") ||
+                    error_str.contains("LackBalanceForState");
+
+                if needs_storage_deposit {
+                    env::log_str("Detected registration error, performing storage deposit...");
+
+                    let storage_deposit_promise = Promise::new(burrow_account).function_call(
+                        "storage_deposit".to_string(),
+                        json!({"account_id": env::current_account_id().to_string()})
+                            .to_string()
+                            .into_bytes(),
+                        NearToken::from_millinear(250),
+                        config::GAS_STORAGE_DEPOSIT
+                    );
+
+                    let deposit_promise = Promise::new(wrap_account.clone()).function_call(
+                        "near_deposit".to_string(),
+                        json!({})
+                            .to_string()
+                            .into_bytes(),
+                        NearToken::from_yoctonear(deposit_amount.0),
+                        config::GAS_NEAR_DEPOSIT
+                    );
+
+                    let collateral_transfer = Promise::new(wrap_account).function_call(
+                        "ft_transfer_call".to_string(),
+                        json!({
+                                "receiver_id": config::BURROW,
+                                "amount": deposit_amount,
+                                "msg": json!({"Execute": {"actions": [{"IncreaseCollateral": {"token_id": config::WRAP, "max_amount": deposit_amount}}]}}).to_string()
+                            })
+                            .to_string()
+                            .into_bytes(),
+                        NearToken::from_yoctonear(1),
+                        Gas::from_tgas(10)
+                    );
+
+                    storage_deposit_promise.then(deposit_promise).then(collateral_transfer)
+                } else {
+                    env::log_str("Non-registration error, aborting retry");
+                    Promise::new(env::current_account_id())
+                }
+            }
+        }
     }
 
     pub fn deposit_into_burrow_pool(
@@ -1429,15 +1639,56 @@ impl ProxyContract {
         );
         Promise::new(beneficiary).transfer(amount_near)
     }
+
+    pub fn transfer_lp_token(
+        &mut self,
+        receiver_id: AccountId,
+        token_id: String,
+        amount: U128
+    ) -> Promise {
+        self.assert_owner();
+
+        if token_id.is_empty() {
+            ContractError::InvalidInput("Token ID cannot be empty".to_string()).panic();
+        }
+        if amount.0 == 0 {
+            ContractError::InvalidInput("Amount must be non-zero".to_string()).panic();
+        }
+
+        let min_deposit = NearToken::from_yoctonear(1);
+        let attached = env::attached_deposit();
+        if attached < min_deposit {
+            ContractError::InsufficientDeposit(
+                format!(
+                    "Attached deposit {} NEAR is less than required {} NEAR",
+                    attached.as_near(),
+                    min_deposit.as_near()
+                )
+            ).panic();
+        }
+
+        let account_id = env::current_account_id();
+
+        Promise::new(receiver_id).function_call(
+            "mft_transfer".to_string(),
+            json!({
+                    "receiver_id": account_id.to_string(),
+                    "token_id": token_id,
+                    "amount": amount,
+                    "memo": null
+                })
+                .to_string()
+                .into_bytes(),
+            NearToken::from_yoctonear(1),
+            Gas::from_tgas(85)
+        )
+    }
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_sdk::test_utils::{VMContextBuilder, accounts};
+    use near_sdk::test_utils::{ VMContextBuilder, accounts };
     use near_sdk::testing_env;
 
     #[test]
@@ -1447,7 +1698,6 @@ mod tests {
         let contract = ProxyContract::new();
         assert_eq!(contract.get_owner(), accounts(0));
     }
-
 
     #[test]
     fn test_assert_owner_success() {
@@ -1502,8 +1752,6 @@ mod tests {
         contract.stake_lp_tokens("pool1".to_string(), U128(0), accounts(1));
     }
 
-
-
     #[test]
     #[should_panic(expected = "Invalid input: deposit_amount must be non-zero")]
     fn test_stake_x_ref_zero_deposit() {
@@ -1530,7 +1778,13 @@ mod tests {
             .build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
-        let promises = contract.reinvest(accounts(1), U128(0), U128(0), "123".to_string(), "Burrow".to_string());
+        let promises = contract.reinvest(
+            accounts(1),
+            U128(0),
+            U128(0),
+            "123".to_string(),
+            "Burrow".to_string()
+        );
         assert_eq!(promises.len(), 0);
     }
 
@@ -1547,7 +1801,7 @@ mod tests {
             U128(1_000),
             U128(1_000_000_000_000_000_000_000_000),
             "123".to_string(),
-            "Burrow".to_string(),
+            "Burrow".to_string()
         );
         assert_eq!(promises.len(), 1);
     }
@@ -1561,7 +1815,13 @@ mod tests {
             .build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
-        contract.reinvest(accounts(1), U128(1_000), U128(1_000), "123".to_string(), "Invalid".to_string());
+        contract.reinvest(
+            accounts(1),
+            U128(1_000),
+            U128(1_000),
+            "123".to_string(),
+            "Invalid".to_string()
+        );
     }
 
     #[test]
@@ -1599,7 +1859,10 @@ mod tests {
             .build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
-        let _promise = contract.withdraw_amount(accounts(1), U128(1_000_000_000_000_000_000_000_000));
+        let _promise = contract.withdraw_amount(
+            accounts(1),
+            U128(1_000_000_000_000_000_000_000_000)
+        );
     }
 
     #[test]
@@ -1624,9 +1887,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid input: seed_id cannot be empty")]
     fn test_unstake_lp_empty_seed_id() {
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(0))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         contract.unstake_lp("".to_string(), U128(1_000), accounts(1));
@@ -1635,9 +1896,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid input: withdraw_amount must be non-zero")]
     fn test_unstake_lp_zero_amount() {
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(0))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         contract.unstake_lp("seed1".to_string(), U128(0), accounts(1));
@@ -1646,9 +1905,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid input: seed_id cannot be empty")]
     fn test_claim_all_rewards_empty_seed_id() {
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(0))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         contract.claim_all_rewards("".to_string(), accounts(1));
@@ -1657,20 +1914,23 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid input: shares must be non-zero")]
     fn test_remove_liquidity_zero_shares() {
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(0))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
-        contract.remove_liquidity_and_withdraw_tokens(123, U128(0), U128(0), U128(0), accounts(1), accounts(2));
+        contract.remove_liquidity_and_withdraw_tokens(
+            123,
+            U128(0),
+            U128(0),
+            U128(0),
+            accounts(1),
+            accounts(2)
+        );
     }
 
     #[test]
     #[should_panic(expected = "Invalid input: deposit_amount must be non-zero")]
     fn test_deposit_into_burrow_zero_amount() {
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(0))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         contract.deposit_into_burrow(U128(0));
@@ -1679,9 +1939,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid input: deposit_amount must be non-zero")]
     fn test_deposit_into_burrow_pool_zero_amount() {
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(0))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         contract.deposit_into_burrow_pool(accounts(1), U128(0));
@@ -1690,9 +1948,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid input: withdraw_amount must be non-zero")]
     fn test_withdraw_from_borrow_pool_zero_amount() {
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(0))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(0)).build();
         testing_env!(context);
         let mut contract = ProxyContract::new();
         contract.withdraw_from_borrow_pool(U128(0));
@@ -1743,9 +1999,7 @@ mod tests {
             .build();
         testing_env!(context);
         let contract = ProxyContract::new();
-        let context = VMContextBuilder::new()
-            .predecessor_account_id(accounts(1))
-            .build();
+        let context = VMContextBuilder::new().predecessor_account_id(accounts(1)).build();
         testing_env!(context);
         contract.get_contract_balance();
     }
