@@ -26,7 +26,7 @@ This is a NEAR Protocol smart contract that enables users stake, auto claim and 
 
 ## Contract ID
 ```
-[userid].auto-claim-main2.near
+[userid]. compoundx.near
 ```
 
 # Contract ID
