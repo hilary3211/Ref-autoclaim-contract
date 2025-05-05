@@ -370,7 +370,7 @@ impl ProxyContract {
             )
         );
 
-        let threshold = 20_000_000_000_000//2_000_000_000_000_000_000_000_000;
+        let threshold = 20_000_000_000_000;//2_000_000_000_000_000_000_000_000;
         if balance_increase >= threshold {
             let caller_share_near = (balance_increase * 5) / 100;
             let remaining_balance = (balance_increase * 95) / 100;
