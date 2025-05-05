@@ -370,7 +370,7 @@ impl ProxyContract {
             )
         );
 
-        let threshold = 2_000_000_000_000_000_000_000_000;
+        let threshold = 20_000_000_000_000//2_000_000_000_000_000_000_000_000;
         if balance_increase >= threshold {
             let caller_share_near = (balance_increase * 5) / 100;
             let remaining_balance = (balance_increase * 95) / 100;
@@ -567,67 +567,6 @@ impl ProxyContract {
         transfer_promise
     }
 
-    // pub fn unstake_lp(
-    //     &mut self,
-    //     seed_id: String,
-    //     withdraw_amount: U128,
-    //     token_id: AccountId
-    // ) -> Promise {
-    //     self.assert_owner();
-    //     if seed_id.is_empty() {
-    //         ContractError::InvalidInput("seed_id cannot be empty".to_string()).panic();
-    //     }
-    //     if withdraw_amount.0 == 0 {
-    //         ContractError::InvalidInput("withdraw_amount must be non-zero".to_string()).panic();
-    //     }
-
-    //     let unlock_and_withdraw_seed = Promise::new(
-    //         config::BOOSTFARM
-    //             .parse()
-    //             .unwrap_or_else(|_|
-    //                 ContractError::InvalidAccountId(config::BOOSTFARM.to_string()).panic()
-    //             )
-    //     ).function_call(
-    //         "unlock_and_withdraw_seed".to_string(),
-    //         json!({
-    //             "seed_id": seed_id,
-    //             "unlock_amount": "0",
-    //             "withdraw_amount": withdraw_amount,
-    //         })
-    //             .to_string()
-    //             .into_bytes(),
-    //         NearToken::from_yoctonear(1),
-    //         config::GAS_FT_TRANSFER
-    //     );
-
-    //     let withdraw_reward_token = Promise::new(
-    //         config::BOOSTFARM
-    //             .parse()
-    //             .unwrap_or_else(|_|
-    //                 ContractError::InvalidAccountId(config::BOOSTFARM.to_string()).panic()
-    //             )
-    //     ).function_call(
-    //         "withdraw_reward".to_string(),
-    //         json!({"token_id": token_id}).to_string().into_bytes(),
-    //         NearToken::from_yoctonear(0),
-    //         config::GAS_CLAIM_REWARD
-    //     );
-
-    //     let delete_preference = Promise::new(
-    //         config::MAIN_ID
-    //             .parse()
-    //             .unwrap_or_else(|_|
-    //                 ContractError::InvalidAccountId(config::MAIN_ID.to_string()).panic()
-    //             )
-    //     ).function_call(
-    //         "delete_preference".to_string(),
-    //         json!({"seed_id": seed_id}).to_string().into_bytes(),
-    //         NearToken::from_yoctonear(0),
-    //         Gas::from_tgas(20)
-    //     );
-
-    //     unlock_and_withdraw_seed.then(withdraw_reward_token).then(delete_preference)
-    // }
 
     pub fn unstake_lp(
         &mut self,
