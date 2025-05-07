@@ -714,11 +714,14 @@ impl ProxyContract {
         PromiseOrValue::Value(())
     }
 
+
+
     #[payable]
     pub fn withdraw_from_borrow_pool(
         &mut self,
         withdraw_amount: U128,
-        token_id: AccountId
+        token_id: AccountId, 
+        receiver_id: AccountId,
     ) -> Promise {
         self.assert_owner();
 
@@ -726,41 +729,110 @@ impl ProxyContract {
             ContractError::InvalidInput("withdraw_amount must be non-zero".to_string()).panic();
         }
 
-        // Step 1: Withdraw from Burrow
+
         let withdraw_promise = Promise::new(
-            config::ORACLE
+            config::BURROW
                 .parse()
                 .unwrap_or_else(|_|
-                    ContractError::InvalidAccountId(config::ORACLE.to_string()).panic()
+                    ContractError::InvalidAccountId(config::BURROW.to_string()).panic()
                 )
         ).function_call(
-            "oracle_call".to_string(),
+            "execute".to_string(),
             json!({
-                "receiver_id": config::BURROW,
-                "msg": json!({"Execute": {"actions": [
-                    {"DecreaseCollateral": {"token_id": token_id.to_string()}},
-                    {"Withdraw": {"token_id": token_id.to_string()}}
-                ]}}).to_string()
+                "actions": [
+                    {
+                        "Withdraw": {
+                            "token_id": token_id.to_string(),
+                        }
+                    }
+                ]
             })
-                .to_string()
-                .into_bytes(),
-            NearToken::from_yoctonear(1),
-            config::GAS_ORACLE_CALL
+            .to_string()
+            .into_bytes(),
+            NearToken::from_yoctonear(1), 
+            Gas::from_tgas(60) 
         );
 
-        if token_id == "wrap.near" {
-            withdraw_promise.then(
-                Promise::new(token_id).function_call(
-                    "near_withdraw".to_string(),
-                    json!({"amount": withdraw_amount}).to_string().into_bytes(),
-                    NearToken::from_yoctonear(1),
-                    config::GAS_FT_TRANSFER
+        let withdraw_promise2 = Promise::new(
+            config::BURROW
+                .parse()
+                .unwrap_or_else(|_|
+                    ContractError::InvalidAccountId(config::BURROW.to_string()).panic()
                 )
-            )
-        } else {
+        ).function_call(
+            "execute_with_pyth".to_string(),
+            json!({
+                "actions": [
+                        {
+                        "DecreaseCollateral": {
+                            "token_id": token_id.to_string(),
+                        }
+                        },
+                        {
+                        "Withdraw": {
+                            "token_id": token_id.to_string(),
+                        }
+                        }
+                 ]
+            })
+            .to_string()
+            .into_bytes(),
+            NearToken::from_yoctonear(1), 
+            Gas::from_tgas(90) 
+        );
+        
+      
+        if token_id == "wrap.near" {
             withdraw_promise
+                .then(Self::ext(env::current_account_id())
+                .with_static_gas(Gas::from_tgas(65))
+                .withdraw_token(token_id, receiver_id, withdraw_amount,))
+        } else {
+            withdraw_promise2.then(Self::ext(env::current_account_id())
+            .with_static_gas(Gas::from_tgas(65))
+            .on_complete_withdraw_token(token_id, receiver_id, withdraw_amount))
         }
     }
+
+    #[private]
+    pub fn on_complete_withdraw_token(
+        &mut self,
+        token_id: AccountId,
+        receiver_id: AccountId,
+        amount: U128
+    ) -> Promise {
+       
+
+        if token_id == "wrap.near" {
+            Promise::new("wrap.near".parse().unwrap())
+            .function_call(
+                "near_withdraw".to_string(),
+                json!({"amount": amount.0.to_string()})
+                    .to_string()
+                    .into_bytes(),
+                NearToken::from_yoctonear(1), 
+                Gas::from_tgas(50)
+            ).then(Promise::new(receiver_id)
+            .transfer(NearToken::from_yoctonear(amount.0)))
+
+        }else {
+            Promise::new(token_id.clone()).function_call(
+                "ft_transfer".to_string(),
+                json!({
+                    "receiver_id": receiver_id,
+                    "amount": amount,
+                    "memo": "Withdraw token from contract"
+                })
+                    .to_string()
+                    .into_bytes(),
+                NearToken::from_yoctonear(1),
+                config::GAS_FT_TRANSFER
+            )
+        }
+
+      
+    }
+
     pub fn withdraw_token(
         &mut self,
         token_id: AccountId,
@@ -777,18 +849,34 @@ impl ProxyContract {
             ContractError::InvalidInput("amount must be non-zero".to_string()).panic();
         }
 
-        Promise::new(token_id.clone()).function_call(
-            "ft_transfer".to_string(),
-            json!({
-                "receiver_id": receiver_id,
-                "amount": amount,
-                "memo": "Withdraw token from contract"
-            })
-                .to_string()
-                .into_bytes(),
-            NearToken::from_yoctonear(1),
-            config::GAS_FT_TRANSFER
-        )
+        if token_id == "wrap.near" {
+            Promise::new("wrap.near".parse().unwrap())
+            .function_call(
+                "near_withdraw".to_string(),
+                json!({"amount": amount.0.to_string()})
+                    .to_string()
+                    .into_bytes(),
+                NearToken::from_yoctonear(1), 
+                Gas::from_tgas(50)
+            ).then(Promise::new(receiver_id)
+            .transfer(NearToken::from_yoctonear(amount.0)))
+
+        }else {
+            Promise::new(token_id.clone()).function_call(
+                "ft_transfer".to_string(),
+                json!({
+                    "receiver_id": receiver_id,
+                    "amount": amount,
+                    "memo": "Withdraw token from contract"
+                })
+                    .to_string()
+                    .into_bytes(),
+                NearToken::from_yoctonear(1),
+                config::GAS_FT_TRANSFER
+            )
+        }
+
+      
     }
 
     pub fn get_contract_balance(&self) -> NearToken {
@@ -880,6 +968,8 @@ impl ProxyContract {
             Gas::from_tgas(85)
         )
     }
+
+    
 }
 
 #[cfg(test)]
