@@ -216,7 +216,7 @@ impl ProxyContract {
             current_time - self.last_compound_call >= 3_600_000_000_000,
             "Compound can only be called once every hour"
         );
-
+      
         self.assert_not_processing();
         self.is_processing = true;
 
@@ -398,8 +398,9 @@ impl ProxyContract {
             let transfer_promise = Promise::new(caller).transfer(
                 NearToken::from_yoctonear(caller_share_near)
             );
-
+            self.is_processing = false;
             PromiseOrValue::Promise(reinvest_promise.then(transfer_promise))
+        
         } else {
             self.is_processing = false;
             env::log_str(
@@ -501,10 +502,12 @@ impl ProxyContract {
             NearToken::from_yoctonear(1),
             Gas::from_tgas(50)
         );
-
+        self.is_processing = false;
         deposit_promise.then(collateral_transfer)
+        
     }
 
+    #[payable]
     pub fn deposit_into_burrow_pool(
         &mut self,
         token_id: AccountId,
@@ -617,9 +620,75 @@ impl ProxyContract {
         unlock_and_withdraw_seed.then(withdraw_reward_token)
     }
 
+    #[payable]
+    pub fn remove_liquidity_and_withdraw_tokens(
+        &mut self,
+        seed_id: String,
+        withdraw_amount: U128,
+        token_id: AccountId,
+        owner_acc: AccountId,
+        pool_id: String,
+    ) -> Promise {
+        self.assert_owner();
+        if seed_id.is_empty() {
+            ContractError::InvalidInput("seed_id cannot be empty".to_string()).panic();
+        }
+        if withdraw_amount.0 == 0 {
+            ContractError::InvalidInput("withdraw_amount must be non-zero".to_string()).panic();
+        }
+
+        let unlock_and_withdraw_seed = Promise::new(
+            config::BOOSTFARM
+                .parse()
+                .unwrap_or_else(|_|
+                    ContractError::InvalidAccountId(config::BOOSTFARM.to_string()).panic()
+                )
+        ).function_call(
+            "unlock_and_withdraw_seed".to_string(),
+            json!({
+                "seed_id": seed_id,
+                "unlock_amount": "0",
+                "withdraw_amount": withdraw_amount,
+            })
+                .to_string()
+                .into_bytes(),
+            NearToken::from_yoctonear(1),
+            config::GAS_FT_TRANSFER
+        );
+
+        let withdraw_reward_token = Promise::new(
+            config::BOOSTFARM
+                .parse()
+                .unwrap_or_else(|_|
+                    ContractError::InvalidAccountId(config::BOOSTFARM.to_string()).panic()
+                )
+        ).function_call(
+            "withdraw_reward".to_string(),
+            json!({"token_id": token_id}).to_string().into_bytes(),
+            NearToken::from_yoctonear(0),
+            config::GAS_CLAIM_REWARD
+        );
+
+        let transfer_promise = Promise::new(config::REF_FINANCE.parse().unwrap()).function_call(
+            "mft_transfer".to_string(),
+            json!({
+                    "receiver_id": owner_acc,
+                    "token_id": pool_id,
+                    "amount": withdraw_amount,
+                    "msg": "\"Free\""
+                })
+                .to_string()
+                .into_bytes(),
+            NearToken::from_yoctonear(1),
+            config::GAS_FT_TRANSFER
+        );
+
+        unlock_and_withdraw_seed.then(withdraw_reward_token).then(transfer_promise)
+    }
+
     #[private]
     pub fn handle_reinvest_result(
-        &self,
+        &mut self,
         contract_name: String,
         action: String
     ) -> PromiseOrValue<()> {
@@ -641,6 +710,7 @@ impl ProxyContract {
         } else {
             env::log_str("No promise result available");
         }
+        self.is_processing = false;
         PromiseOrValue::Value(())
     }
 
