@@ -612,7 +612,7 @@ impl ProxyContract {
             "withdraw_reward".to_string(),
             json!({"token_id": token_id}).to_string().into_bytes(),
             NearToken::from_yoctonear(0),
-            config::GAS_CLAIM_REWARD
+            Gas::from_tgas(50)
         );
 
         unlock_and_withdraw_seed.then(withdraw_reward_token)
