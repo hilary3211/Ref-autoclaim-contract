@@ -298,6 +298,7 @@ impl ProxyContract {
                 match active_pref {
                     Some((seed_id, _token_id, smart_contract_name, invested_in, reinvest_to)) => {
                         let promise_chain = match invested_in {
+                            
                             ReinvestFrom::BurrowFarm { .. } => {
                                 self.claim_from_burrow().then(
                                     self.claim_all_rewards(
@@ -741,49 +742,9 @@ impl ProxyContract {
         );
 
         withdrawal_promise
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(Gas::from_tgas(2))
-                    .delay_1_block()
-            )
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(Gas::from_tgas(100))
-                    .on_withdrawal_complete(token_id, receiver_id, withdraw_amount)
-            )
     }
 
-    #[private]
-    pub fn on_withdrawal_complete(
-        &mut self,
-        token_id: AccountId,
-        receiver_id: AccountId,
-        amount: U128
-    ) -> Promise {
-        if token_id == "wrap.near" {
-            Promise::new("wrap.near".parse().unwrap())
-                .function_call(
-                    "near_withdraw".to_string(),
-                    json!({"amount": amount}).to_string().into_bytes(),
-                    NearToken::from_yoctonear(1),
-                    Gas::from_tgas(50)
-                )
-                .then(Promise::new(receiver_id).transfer(NearToken::from_yoctonear(amount.0)))
-        } else {
-            Promise::new(token_id.clone()).function_call(
-                "ft_transfer".to_string(),
-                json!({
-                        "receiver_id": receiver_id,
-                        "amount": amount,
-                        "memo": "Withdraw token from contract"
-                    })
-                    .to_string()
-                    .into_bytes(),
-                NearToken::from_yoctonear(1),
-                config::GAS_FT_TRANSFER
-            )
-        }
-    }
+   
 
     #[private]
     pub fn delay_1_block(&mut self) {}
